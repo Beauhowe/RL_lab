@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "supermimic_lab"
+version = "0.2.0"
+description = "Modular SuperMimic model-based robot learning with mjlab"
+readme = "README.md"
+license = { text = "MIT" }
+authors = [{ name = "Ziyue Zheng", email = "zzheng60@jh.edu" }]
+requires-python = ">=3.10"
+dependencies = [
+  "torch",
+  "matplotlib",
+  "mediapy",
+  "pillow",
+  "tensorboard",
+  "tomli; python_version < '3.11'",
+]
+
+[project.optional-dependencies]
+dev = ["pytest"]
+mjlab = ["mjlab>=1.6,<1.7", "rsl-rl-lib>=5,<6"]
+ppo = ["rsl-rl-lib>=5,<6", "tensordict"]
+# Isaac Lab/Isaac Sim and its pinned RSL-RL are installed by the Isaac Lab SDK.
+isaaclab = ["tensordict"]
+
+[project.scripts]
+supermimic-train = "supermimic_lab.runners.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["supermimic_lab*"]
+
+[tool.setuptools.package-data]
+supermimic_lab = ["assets/robots/unitree_go2/robot.xml", "assets/robots/unitree_go2/meshes/*.obj", "assets/robots/unitree_go2/LICENSE_menagerie_go2"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]

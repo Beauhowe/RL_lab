@@ -1,0 +1,13 @@
+# Short integration check, not a trained walking policy.
+algorithm = "ppo"
+backend = "mjlab"
+task = "Go2-Locomotion-Rough"
+num_envs = 14
+iterations = 3
+num_steps_per_env = 8
+learning_epochs = 1
+minibatches = 2
+actor_hidden = [64, 32]
+critic_hidden = [64, 32]
+save_interval = 2
+run_name = "smoke_ppo_mjlab"

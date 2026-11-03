@@ -1,0 +1,11 @@
+# mjlab PPO velocity tracking. Isaac Lab uses its own native task profile.
+algorithm = "ppo"
+backend = "mjlab"
+robot = "unitree_go2"
+task = "Go2-Locomotion-Flat"
+device = "cuda:0"
+num_envs = 2048
+iterations = 1500
+num_steps_per_env = 24
+save_interval = 100
+run_name = "go2_ppo_mjlab_flat"

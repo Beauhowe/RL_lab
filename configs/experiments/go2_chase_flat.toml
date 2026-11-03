@@ -1,0 +1,7 @@
+# CLI flags override these settings. Resume requires a full training checkpoint.
+robot = "unitree_go2"
+backend = "mjlab"
+task = "Go2-Chase-Flat"
+device = "cuda:0"
+run_name = "go2_chase_flat"
+seed = 0

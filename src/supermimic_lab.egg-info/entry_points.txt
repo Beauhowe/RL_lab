@@ -1,0 +1,2 @@
+[console_scripts]
+supermimic-train = supermimic_lab.runners.cli:main

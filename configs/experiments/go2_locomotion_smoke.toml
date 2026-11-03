@@ -1,0 +1,21 @@
+# Check every terrain column and the complete training path; this does not train a useful policy.
+robot = "unitree_go2"
+backend = "mjlab"
+task = "Go2-Locomotion-Rough"
+device = "cuda:0"
+run_name = "smoke_locomotion_rough"
+seed = 0
+num_envs = 14
+imag_batch = 32
+wm_batch = 32
+buffer_len = 32
+archive_size = 128
+iterations = 12
+warmup_iterations = 4
+horizon = 4
+wm_updates = 1
+critic_epochs = 1
+critic_minibatches = 2
+compile = false
+log_interval = 2
+save_interval = 12

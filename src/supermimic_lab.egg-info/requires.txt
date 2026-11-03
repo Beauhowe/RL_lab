@@ -1,0 +1,12 @@
+mjlab>=1.6.0
+torch
+matplotlib
+mediapy
+pillow
+tensorboard
+
+[:python_version < "3.11"]
+tomli
+
+[dev]
+pytest

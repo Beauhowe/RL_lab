@@ -1,0 +1,330 @@
+Metadata-Version: 2.4
+Name: supermimic_lab
+Version: 0.2.0
+Summary: Modular SuperMimic model-based robot learning with mjlab
+Author-email: Ziyue Zheng <zzheng60@jh.edu>
+License: MIT
+Requires-Python: >=3.10
+Description-Content-Type: text/markdown
+License-File: LICENSE
+Requires-Dist: mjlab>=1.6.0
+Requires-Dist: torch
+Requires-Dist: matplotlib
+Requires-Dist: mediapy
+Requires-Dist: pillow
+Requires-Dist: tensorboard
+Requires-Dist: tomli; python_version < "3.11"
+Provides-Extra: dev
+Requires-Dist: pytest; extra == "dev"
+Dynamic: license-file
+
+# supermimic_lab
+
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
+[![Built on mjlab](https://img.shields.io/badge/built%20on-mjlab-orange.svg)](https://github.com/mujocolab/mjlab)
+
+Original Go2-SuperMimic project: Ziyue Zheng, Johns Hopkins University
+
+A modular training codebase for SuperMimic model-based robot learning on **mjlab
+(MuJoCo Warp)**. The current implementation preserves the original Unitree Go2
+chasing-and-dodging tasks and pretrained policies.
+
+Training collects simulator transitions, fits a differentiable world model, and
+improves the actor by back-propagating through imagined rollouts. The method is
+based on [SuperMimic](https://arxiv.org/abs/2610.28480).
+
+The runner, update phases, neural networks and replay storage are separated from
+robot assets, simulator reads and task-specific imagination. Models and storage
+receive explicit dimensions rather than importing Go2 constants. New robot/task
+combinations need their own specification and runtime implementation; only the
+three Go2 tasks and the mjlab backend are currently registered. A velocity task,
+other robots and Isaac Lab integration are extension points, not bundled features.
+
+## 📖 Overview
+
+| Flat | Obstacles | Terrain |
+|:---:|:---:|:---:|
+| <img src="resources/flat.gif" width="280"/> | <img src="resources/obstacles.gif" width="280"/> | <img src="resources/terrain.gif" width="280"/> |
+| `Go2-Chase-Flat` | `Go2-Chase-Obstacles` | `Go2-Chase-Terrain` |
+
+Every task combines the same two games:
+
+- **Chase.** The green ball flees at about the robot's speed, jukes sideways and stays in an
+  arena. Touching it with the head is a *tag*; the ball then breaks free and runs again.
+- **Dodge.** Obstacles are thrown from around the chase ball, one at a time and with no
+  wind-up: high, mid and low **balls** (duck, sidestep, lift a leg), **low bars** to jump over
+  and **high bars** to duck under.
+
+| Task | Scene | Extra robot input | Episode modes | Thrown |
+|---|---|---|---|---|
+| `Go2-Chase-Flat` | open flat ground | – | chase / dodge / both (30 / 30 / 40 %) | balls + bars |
+| `Go2-Chase-Obstacles` | tall boxes, pillars and walls, placed per episode | 16-ray planar LiDAR | chase / dodge / both (30 / 30 / 40 %) | balls + bars (slower) |
+| `Go2-Chase-Terrain` | pyramid stairs up and down, box grids, rough ground, slopes; 5 difficulty rows | 11 × 7 height scan | chase / chase + dodge (60 / 40 %) | bars |
+
+Among obstacles the chase ball slides along them and throws wait for a clear line to the robot.
+On terrain, steps grow from 2 to 10 cm and box edges from 2 to 8 cm; harder rows open during
+training.
+
+## 🚀 Quickstart
+
+```bash
+pip install -e ".[dev]"  # needs mjlab >= 1.6 (MuJoCo Warp, CUDA GPU)
+python -m pytest tests  # generator, collision model, obstacles, height scan, warm starts
+
+# Watch the pretrained policies.
+python scripts/eval.py Go2-Chase-Flat --checkpoint weights/flat.pt --mode both \
+    --num-envs 1 --seconds 30 --video flat.mp4
+python scripts/eval.py Go2-Chase-Obstacles --checkpoint weights/obstacles.pt --mode both \
+    --num-envs 1 --seconds 30 --video obstacles.mp4
+python scripts/eval.py Go2-Chase-Terrain --checkpoint weights/terrain.pt --terrain stairs \
+    --num-envs 1 --seconds 30 --video terrain.mp4
+```
+
+### Pretrained policies
+
+`weights/` holds the actor of each task (policy only; enough for `scripts/eval.py`, not for
+resuming training, which also needs the world model and critic).
+
+| file | task | inputs |
+|---|---|---|
+| `flat.pt` | `Go2-Chase-Flat` | 350 |
+| `obstacles.pt` | `Go2-Chase-Obstacles` | 430 |
+| `terrain.pt` | `Go2-Chase-Terrain` | 735 |
+
+### Train
+
+```bash
+# Flat ground, from scratch (see "How the released policies were trained" on length).
+python scripts/train.py --task Go2-Chase-Flat --run-name flat
+# Extend a run: resume it and carry on its iteration count, curricula and schedules.
+python scripts/train.py --task Go2-Chase-Flat --resume logs/supermimic/<flat>/model_12000.pt \
+    --continue-run true --iterations 30000 --run-name flat_cont
+
+# Obstacles, warm-started from the flat policy (its new LiDAR inputs start at zero weight).
+python scripts/train.py --task Go2-Chase-Obstacles --resume logs/supermimic/<flat>/model_12000.pt \
+    --run-name obstacles
+
+# Terrain, warm-started from the flat policy (new height-scan inputs start at zero weight).
+# Two drivers keep collecting world-model data throughout (they shape the data only; the
+# trained and deployed policy is the actor alone): a terrain-walking policy (steady steps on
+# edges and slopes) and the flat policy itself (jumps and ducks on terrain).
+# Terrain rows and ball speed ramp up over 12k iterations.
+python scripts/train.py --task Go2-Chase-Terrain --resume logs/supermimic/<flat>/model_12000.pt \
+    --driver-policy <MoE-CTS policy.pt> --driver-frac 0.1 \
+    --expert-policy logs/supermimic/<flat>/model_12000.pt --expert-frac 0.1 \
+    --wm-updates 4 --actor-lr-scale 0.3 --warmup-iterations 1000 --run-name terrain
+```
+
+The terrain-walking driver is go2_rl_lab's mixed-terrain MoE-CTS policy (MIT), not included
+here: download `exported/policy.pt` from
+[wty-yy/go2_rl_gym_data](https://huggingface.co/wty-yy/go2_rl_gym_data/tree/main/go2_rl_lab/2026-10-13_15-35-09_mixed1.3.2resume_82.5k_0.6929).
+
+Every field of `TrainCfg` (`src/supermimic_lab/algorithms/supermimic/config.py`) is a command-line flag. On a
+16 GB GPU use `--num-envs 2048 --imag-batch 4096 --buffer-len 400` for terrain.
+
+### How the released policies were trained
+
+All three were trained from scratch with SuperMimic in this setup, with no demonstrations and
+no PPO; only the terrain runs used other policies, and only to collect world-model data.
+
+- **Flat** (`flat.pt`): tens of thousands of iterations in total, in stages that each
+  resumed the previous checkpoint while the task grew: chasing only, then thrown balls, then
+  bars, then throws from around the chase ball. It was trained with an earlier version of
+  this code; the released task is the final stage (checked against it config by config and
+  by evaluation). A single run of the final task from scratch is still being checked: after
+  ~7k iterations it chases and rarely falls, but it is still hit by bars far more often, so
+  expect to need longer runs (or the staged route) to match `flat.pt`.
+- **Obstacles** (`obstacles.pt`): resumed from the flat policy, about 8k iterations.
+- **Terrain** (`terrain.pt`): resumed from the flat policy; about 12k iterations on gentler,
+  continuous terrain, then about 25k on the current terrain across several restarts while
+  fixing problems (a higher fall penalty, bars that come from uphill, a finer height map,
+  keeping the data drivers on, a lower actor learning rate); the last 12k ran with the
+  command above. Earlier stages used other settings, so this is the setup we ended with, not
+  a single run we have reproduced end to end.
+
+### Evaluate and record
+
+```bash
+# Metrics over many envs at the hardest settings: tags / min, per-kind dodge hit rates with
+# body height, top foot and sideways speed, obstacle contact, falls / min, speed.
+python scripts/eval.py Go2-Chase-Flat --checkpoint model.pt --num-envs 256 --seconds 60
+
+# A video of env 0 with a status card (mode, robot and ball speeds).
+python scripts/eval.py Go2-Chase-Obstacles --checkpoint model.pt --mode both \
+    --num-envs 1 --seconds 30 --video obstacles.mp4
+python scripts/eval.py Go2-Chase-Terrain --checkpoint model.pt --terrain stairs \
+    --num-envs 1 --seconds 30 --video stairs.mp4
+```
+
+`--mode chase|dodge|both|mixed` overrides the task's episode modes; `--terrain` puts env 0 on
+one terrain type (`flat`, `stairs`, `stairs_inv`, `boxes`, `rough`, `slope`, `slope_inv`).
+
+## 🔌 Interfaces
+
+**Policy.** `Actor` (`src/supermimic_lab/models/actor_critic.py`): an MLP from the stacked actor
+observation to 12 joint-position actions (target = default pose + action × per-joint scale, PD
+control at 50 Hz). Checkpoints hold `actor`, `critic`, `world_model` and the training config.
+
+**Actor observation**, 5 frames of history, each term stacked oldest → newest:
+
+| term | per frame | notes |
+|---|---|---|
+| base angular velocity | 3 | IMU, body frame |
+| projected gravity | 3 | body frame |
+| joint positions − default | 12 | with a per-episode encoder bias |
+| joint velocities | 12 | |
+| last action | 12 | |
+| target | 28 | the two slots below |
+| LiDAR | 16 | obstacles task only; ranges to 4 m |
+| height scan | 77 | terrain task only; base height above an 11 × 7 grid, 12 cm spacing |
+
+Total: 350 (flat), 430 (obstacles), 735 (terrain) inputs. No linear velocity: it is not
+measured on the robot.
+
+**Target observation** (`src/supermimic_lab/tasks/chase_dodge/targets/interface.py`), the only thing the policy knows
+about the balls: two slots, CHASE then DODGE, in the robot yaw frame. In simulation they are
+filled from ground truth (`oracle_observation`); on the robot a perception stack must fill the
+same layout.
+
+| per slot (14) | meaning |
+|---|---|
+| `p` (3), `v` (3) | object position relative to the base and its velocity, yaw frame |
+| `sigma` (3) | 1-σ position uncertainty (0 for the oracle) |
+| `visible`, `age` | measured this step; seconds since the last measurement |
+| `is_bar`, `half_len` | bar or ball; bar half length |
+| `active` | the object is in play (an inactive slot is all zeros) |
+
+## 📦 Package layout
+
+```text
+src/supermimic_lab/
+  algorithms/supermimic/  update phases, generic rollout accumulation, TrainCfg
+  models/                Actor, Critic, residual WorldModel, normalization
+  runners/               collection/training loop, logging, checkpoint lifecycle, CLI
+  storage/               replay buffer and rare-event window archive
+  envs/                  runtime protocol, tensor/robot specifications, observation history
+  backends/mjlab/        environment construction, kinematic and actuator reads
+  assets/robots/unitree_go2/
+                         robot specification, MJCF, meshes and model license
+  tasks/registry.py      lazy robot/task/backend bindings
+  tasks/chase_dodge/
+    config/unitree_go2/  the three Go2 environment presets
+    mdp/                 commands, observations, rewards and curriculum
+    targets/             ball/bar dynamics, collision, terrain, LiDAR and serialization
+    imagination.py       task-specific predicted step, rewards and soft termination
+    runtime.py           task-to-runner adapter and data drivers
+    evaluation.py        task-specific metrics and video recording
+  utils/                 coordinate math, warm starts and visualization
+configs/experiments/     runnable TOML experiment presets
+scripts/                 train.py, eval.py, export.py
+tests/                   configuration, resource and CPU learning regression checks
+weights/                 original actor-only pretrained policies
+resources/               original demo GIFs
+```
+
+`runners/` owns the experiment loop, while `algorithms/` owns the parameter updates.
+`storage/` holds training data in memory or on the GPU; checkpoint files go to
+`logs/`. `assets/` describes the robot; task-local `config/` describes its task
+settings; root-level `configs/experiments/` selects an experiment and its overrides.
+
+### Experiment presets
+
+```bash
+python scripts/train.py --config configs/experiments/go2_chase_flat.toml
+python scripts/train.py --config configs/experiments/go2_chase_obstacles.toml \
+    --resume <full-flat-checkpoint.pt>
+python scripts/train.py --config configs/experiments/go2_chase_terrain.toml \
+    --resume <full-flat-checkpoint.pt> \
+    --driver-policy <MoE-CTS-policy.pt> --driver-frac 0.1 \
+    --expert-policy <full-flat-checkpoint.pt> --expert-frac 0.1
+```
+
+Explicit CLI flags override the TOML file, which overrides `TrainCfg` defaults.
+The installed `supermimic-train` command accepts the same flags. Use `--device`
+to select a device supported by the backend; training still requires CUDA in mjlab.
+
+The existing `Go2-Chase-*` task names and `weights/*.pt` files are preserved.
+Imports now use `supermimic_lab`; the old `go2_supermimic` package was removed.
+Full new checkpoints record robot identity, joint order, tensor layouts and history.
+Legacy Go2 checkpoints use their known layouts. Actor warm starts support both
+added LiDAR and added height-scan terms, with zero weights for the new inputs.
+
+### Export a policy
+
+```bash
+python scripts/export.py --checkpoint weights/flat.pt --output logs/flat_actor.pt
+```
+
+This writes a TorchScript actor with observation normalization included. Embedded
+`metadata.json` records input/output dimensions, training configuration and any
+available checkpoint schema. Legacy actor-only weights have no full robot schema;
+use the observation and action conventions documented above. Export does not
+supply a perception stack or hardware control loop.
+
+### Adding another robot or task
+
+1. Add robot assets and a `RobotSpec` under `assets/robots/`.
+2. Define its `DynamicsSpec`, observation layout and simulator state reader.
+3. Implement a runtime conforming to `envs/base.py`, including task-state packing,
+   data drivers, rare-event scoring and checkpoint compatibility checks.
+4. Implement task imagination using `DifferentiableImagination`; residual state
+   encoding must make the model's additive updates meaningful.
+5. Register the combination in `tasks/registry.py` and add an experiment preset.
+
+The canonical mjlab reader handles floating-base kinematics. Other state
+representations, robot geometries, actuator models and perception interfaces need
+explicit adapters. Copying the Go2 asset configuration alone is not sufficient.
+
+### Verification
+
+```bash
+python -m pytest tests/test_configuration.py  # no torch or simulator required
+python -m pytest tests                       # needs torch/numpy, no simulator required
+```
+
+The original Go2 dynamics, reward weights and pretrained policies are retained;
+this refactor has not re-established the published training results end to end.
+
+## ⚠️ Limitations
+
+- Simulation only. Nothing here has run on a physical Go2 yet.
+- Perception is ground truth: the target slots are filled from the simulator. On the robot
+  they must come from a detector; simulated sensor noise and dropouts
+  are not part of the released tasks.
+- Terrain is harder than flat ground: with all rows (steps up to 10 cm) and the fastest ball,
+  `weights/terrain.pt` falls about 0.6 times a minute and is hit by about one in ten low bars;
+  on the easier rows about 0.3 falls a minute. Training continues.
+- The training recipes have not each been reproduced end to end from scratch (see "How the
+  released policies were trained").
+
+## 📚 Citation
+
+This repository re-implements the training method of SuperMimic; please cite the paper:
+
+```bibtex
+@article{liao2026supermimic,
+  title   = {SuperMimic: Scaling Humanoid Whole-Body Control with One Differentiable World Model},
+  author  = {Liao, Qiayuan and Shao, Yiyang and Long, Junfeng and Zakka, Kevin and
+             Horowitz, Roberto and Abbeel, Pieter and Sreenath, Koushil},
+  journal = {arXiv preprint arXiv:2610.28480},
+  year    = {2026}
+}
+```
+
+## 🙏 Acknowledgements
+
+- [SuperMimic](https://supermimic.github.io) (Liao et al., 2026) for the training method.
+- [mjlab](https://github.com/mujocolab/mjlab) and MuJoCo Warp for simulation.
+- [MuJoCo Menagerie](https://github.com/google-deepmind/mujoco_menagerie) for the Go2 model.
+- [go2_rl_lab](https://github.com/wty-yy/go2_rl_gym) (MoE-CTS, Tianyang Wu) for the terrain
+  policy used to collect world-model data.
+- [SPIKE Lab](https://spike-lab.org) at Johns Hopkins University for its support.
+- [Claude Code](https://www.anthropic.com/claude-code) (Anthropic), which helped write and
+  debug much of this code.
+
+## 📄 License
+
+MIT (see [LICENSE](LICENSE)). The Go2 model and meshes in `src/supermimic_lab/assets/robots/unitree_go2/` come from
+MuJoCo Menagerie and keep their own license
+([LICENSE_menagerie_go2](src/supermimic_lab/assets/robots/unitree_go2/LICENSE_menagerie_go2)).

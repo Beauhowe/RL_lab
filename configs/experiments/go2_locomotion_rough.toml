@@ -1,0 +1,19 @@
+# Mixed flat, stairs, slopes, boxes and rough ground. --resume is optional.
+# For transfer, resume a full Go2-Locomotion-Flat checkpoint.
+robot = "unitree_go2"
+backend = "mjlab"
+task = "Go2-Locomotion-Rough"
+device = "cuda:0"
+run_name = "go2_locomotion_rough"
+seed = 0
+num_envs = 2048
+imag_batch = 4096
+buffer_len = 400
+iterations = 40000
+compile = false
+warmup_iterations = 1000
+wm_updates = 4
+actor_lr_scale = 0.3
+reset_critic = true
+terrain_curriculum_iterations = 12000
+command_curriculum_iterations = 15000

@@ -1,0 +1,41 @@
+{
+  "algorithm": "ppo",
+  "backend": "mjlab",
+  "robot": "unitree_go2",
+  "task": "Go2-Locomotion-Rough",
+  "device": "cuda:0",
+  "num_envs": 2048,
+  "iterations": 1500,
+  "actor_hidden": [
+    512,
+    256,
+    128
+  ],
+  "critic_hidden": [
+    512,
+    256,
+    128
+  ],
+  "save_interval": 100,
+  "seed": 0,
+  "run_name": "go2_ppo_mjlab_rough",
+  "log_root": "logs/ppo",
+  "resume": "",
+  "continue_run": false,
+  "num_steps_per_env": 24,
+  "learning_rate": 0.001,
+  "learning_epochs": 5,
+  "minibatches": 4,
+  "gamma": 0.99,
+  "lam": 0.95,
+  "clip_param": 0.2,
+  "entropy_coef": 0.005,
+  "desired_kl": 0.01,
+  "max_grad_norm": 1.0,
+  "init_noise_std": 0.5,
+  "clip_actions": 10.0,
+  "observation_normalization": true,
+  "terrain_curriculum_steps": 12000,
+  "command_curriculum_steps": 15000,
+  "headless": true
+}
